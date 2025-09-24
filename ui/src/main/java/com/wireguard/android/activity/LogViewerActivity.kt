@@ -59,6 +59,8 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.regex.Matcher
 import java.util.regex.Pattern
+import androidx.appcompat.widget.SwitchCompat
+
 
 class LogViewerActivity : AppCompatActivity() {
     private lateinit var binding: LogViewerActivityBinding
@@ -67,6 +69,15 @@ class LogViewerActivity : AppCompatActivity() {
     private var rawLogLines = CircularArray<String>()
     private var recyclerView: RecyclerView? = null
     private var saveButton: MenuItem? = null
+    private var filterSwitch: SwitchCompat? = null
+    
+    private val prefs by lazy {
+        getSharedPreferences("log_viewer_prefs", MODE_PRIVATE)
+    }
+    private var filterSystemLogs: Boolean
+        get() = prefs.getBoolean("filter_system_logs", true) // 默认开启
+        set(value) = prefs.edit().putBoolean("filter_system_logs", value).apply()
+
     private val year by lazy {
         val yearFormatter: DateFormat = SimpleDateFormat("yyyy", Locale.US)
         yearFormatter.format(Date())
@@ -133,6 +144,20 @@ class LogViewerActivity : AppCompatActivity() {
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.log_viewer, menu)
         saveButton = menu.findItem(R.id.save_log)
+
+    // 获取菜单中的开关
+    val switchItem = menu.findItem(R.id.filter_system_logs)
+    val switchView = switchItem.actionView?.findViewById<SwitchCompat>(R.id.switch_filter)
+
+    // 安全绑定开关
+    switchView?.let { filterSwitch ->
+        filterSwitch.isChecked = filterSystemLogs
+        filterSwitch.setOnCheckedChangeListener { _, isChecked ->
+            filterSystemLogs = isChecked
+            logAdapter.notifyDataSetChanged() // 刷新 RecyclerView
+        }
+      }
+
         return true
     }
 
@@ -221,11 +246,13 @@ class LogViewerActivity : AppCompatActivity() {
                 if (logLine != null) {
                     bufferedLogLines.add(logLine)
                 } else {
-                    if (bufferedLogLines.isNotEmpty()) {
-                        bufferedLogLines.last().msg += "\n$line"
-                    } else if (!logLines.isEmpty()) {
-                        logLines[logLines.size() - 1].msg += "\n$line"
-                        priorModified = true
+                    if (!filterSystemLogs) { // 只在未过滤系统日志时拼接
+                        if (bufferedLogLines.isNotEmpty()) {
+                            bufferedLogLines.last().msg += "\n$line"
+                        } else if (!logLines.isEmpty()) {
+                            logLines[logLines.size() - 1].msg += "\n$line"
+                            priorModified = true
+                        }
                     }
                 }
                 val timeNow = System.nanoTime()
@@ -276,14 +303,16 @@ class LogViewerActivity : AppCompatActivity() {
 
     private fun parseLine(line: String): LogLine? {
         val m: Matcher = THREADTIME_LINE.matcher(line)
-        return if (m.matches()) {
-            LogLine(m.group(2)!!.toInt(), m.group(3)!!.toInt(), parseTime(m.group(1)!!), m.group(4)!!, m.group(5)!!, m.group(6)!!)
-        } else {
-            null
+        if (!m.matches()) return null
+        val tag = m.group(5)!!
+        if(filterSystemLogs && !tag.startsWith("WireGuard")){
+            return null
         }
+
+        return LogLine(m.group(2)!!.toInt(), m.group(3)!!.toInt(), parseTime(m.group(1)!!), m.group(4)!!, m.group(5)!!, m.group(6)!!)
     }
 
-    private data class LogLine(val pid: Int, val tid: Int, val time: Date?, val level: String, val tag: String, var msg: String)
+    private data class LogLine(val pid: Int, val tid: Int, val time: Date?, val level: String, val tag: String, var msg: String, var isExpanded: Boolean = false)
 
     companion object {
         /**
@@ -334,11 +363,14 @@ class LogViewerActivity : AppCompatActivity() {
             holder.layout.apply {
                 findViewById<MaterialTextView>(R.id.log_date).text = line.time.toString()
                 findViewById<MaterialTextView>(R.id.log_msg).apply {
-                    setSingleLine()
+                    //setSingleLine()
+                    isSingleLine = !line.isExpanded
                     text = spannable
                     setOnClickListener {
-                        isSingleLine = !holder.isSingleLine
-                        holder.isSingleLine = !holder.isSingleLine
+                        //isSingleLine = !holder.isSingleLine
+                        //holder.isSingleLine = !holder.isSingleLine
+                        line.isExpanded = !line.isExpanded
+                        notifyItemChanged(position) // 刷新当前条目
                     }
                 }
             }

@@ -5,8 +5,14 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
+    android:id="@+id/filter_system_logs"
+    android:title="@string/filter_system_logs"
+    app:actionLayout="@layout/menu_switch"
+    app:showAsAction="always"/>
+    <item
         android:id="@+id/save_log"
         android:icon="@drawable/ic_action_save"
         android:title="@string/log_export_title"
-        app:showAsAction="ifRoom" />
+        app:showAsAction="ifRoom" />    
+
 </menu>

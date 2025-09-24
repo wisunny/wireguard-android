@@ -150,6 +150,7 @@
     <string name="log_export_subject">WireGuard Android Log File</string>
     <string name="log_export_success">Saved to “%s”</string>
     <string name="log_export_title">Export log file</string>
+    <string name="filter_system_logs">Filter logs</string>
     <string name="log_saver_activity_label">Save log</string>
     <string name="log_viewer_pref_summary">Logs may assist with debugging</string>
     <string name="log_viewer_pref_title">View application log</string>
