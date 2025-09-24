@@ -26,6 +26,9 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.*;
 import android.util.Log;
+import java.util.List;
+import com.wireguard.util.UdpDnsResolver;
+
 
 
 /**
@@ -140,62 +143,35 @@ public final class InetEndpoint {
         synchronized (lock) {
             if (Duration.between(lastResolution, Instant.now()).toSeconds() > 10) {
                 try {
-                    InetAddress address = queryDoh(host, "A");
-                    // 如果没有 IPv4，再尝试 IPv6
-                    if (address == null)
-                        address = queryDoh(host, "AAAA");
-
-                    if (address != null) {
+                    final List<InetAddress> candidates = UdpDnsResolver.resolve(host, "223.5.5.5", 2, 3, 53);
+                    InetAddress address = candidates.get(0);
+                    for (final InetAddress candidate : candidates) {
+                        Log.i(TAG, "address:" + address.getHostAddress());
+                        if (candidate instanceof Inet4Address) {
+                            address = candidate;
+                            break;
+                        }                    
                         if (address instanceof Inet6Address) {
-                            Log.i(TAG, "dns2ip:" + address.getHostAddress());
                             byte[] v6 = address.getAddress();
                             if ((v6[0] == 0x20) && (v6[1] == 0x01) && (v6[2] == 0x00) && (v6[3] == 0x00)) {
                                 InetAddress v4 = InetAddress.getByAddress(Arrays.copyOfRange(v6, 12, 16));
                                 int p = ((v6[10] & 0xFF) << 8) | (v6[11] & 0xFF);
                                 resolved = new InetEndpoint(v4.getHostAddress(), true, p);
                             }
-                    
-                            if (resolved == null)
-                                resolved = new InetEndpoint(address.getHostAddress(), true, port);
-
-                            lastResolution = Instant.now();
                         }
-                    } 
-                     
+                    }
+                    if (resolved == null)
+                        resolved = new InetEndpoint(address.getHostAddress(), true, port);
                     lastResolution = Instant.now();
                 } catch (final Exception e) {
                     resolved = null;
                 }
+            } else {
+                Log.i(TAG, "time shorter than 10s");
             }
+            
             return Optional.ofNullable(resolved);
         }
-    }
-
-    private InetAddress queryDoh(String hostname, String type) throws Exception {
-        String dohUrl = "https://223.5.5.5/resolve?name=" + URLEncoder.encode(hostname, "UTF-8") + "&type=" + type;
-        HttpURLConnection conn = (HttpURLConnection) new URL(dohUrl).openConnection();
-        conn.setRequestProperty("Accept", "application/json");
-        conn.setConnectTimeout(2000);
-        conn.setReadTimeout(2000);
-
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) sb.append(line);
-
-            JSONObject json = new JSONObject(sb.toString());
-            JSONArray answer = json.optJSONArray("Answer");
-            if (answer != null) {
-                Log.i(TAG, String.format("Doh return:%s", answer.toString()));
-                for (int i = 0; i < answer.length(); i++) {
-                    JSONObject record = answer.getJSONObject(i);
-                    String data = record.optString("data");
-                    if (data != null && !data.isEmpty())
-                        return InetAddress.getByName(data);
-                }
-            }
-        }
-        return null;
     }
 
     @Override
