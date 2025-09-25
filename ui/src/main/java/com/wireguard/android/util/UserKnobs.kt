@@ -118,4 +118,19 @@ object UserKnobs {
                 it[UPDATER_NEWER_VERSION_CONSENTED] = newerVersionConsented
         }
     }
+
+    private val CUSTOM_DNS = stringPreferencesKey("custom_dns")
+    val customDnsString: Flow<String?>
+        get() = Application.getPreferencesDataStore().data.map {
+            it[CUSTOM_DNS]
+        }
+
+    suspend fun setCustomDnsString(newerVersionSeen: String?) {
+        Application.getPreferencesDataStore().edit {
+            if (newerVersionSeen == null)
+                it.remove(CUSTOM_DNS)
+            else
+                it[CUSTOM_DNS] = newerVersionSeen
+        }
+    }
 }

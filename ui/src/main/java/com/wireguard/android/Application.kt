@@ -6,6 +6,7 @@ package com.wireguard.android
 
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Build
 import android.os.StrictMode
 import android.os.StrictMode.ThreadPolicy
@@ -16,6 +17,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStoreFile
+import androidx.preference.PreferenceManager
 import com.google.android.material.color.DynamicColors
 import com.wireguard.android.backend.Backend
 import com.wireguard.android.backend.GoBackend
@@ -27,6 +29,7 @@ import com.wireguard.android.util.RootShell
 import com.wireguard.android.util.ToolsInstaller
 import com.wireguard.android.util.UserKnobs
 import com.wireguard.android.util.applicationScope
+import com.wireguard.util.UdpDnsResolver
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,6 +42,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.lang.ref.WeakReference
 import java.util.Locale
+import java.net.InetAddress
 
 class Application : android.app.Application() {
     private val futureBackend = CompletableDeferred<Backend>()
@@ -116,8 +120,8 @@ class Application : android.app.Application() {
                 Log.e(TAG, Log.getStackTraceString(e))
             }
         }
-        Updater.monitorForUpdates()
-
+        //Updater.monitorForUpdates()
+        storeCustomDNS()
         if (BuildConfig.DEBUG) {
             StrictMode.setVmPolicy(VmPolicy.Builder().detectAll().penaltyLog().build())
             StrictMode.setThreadPolicy(ThreadPolicy.Builder().detectAll().penaltyLog().build())
@@ -129,9 +133,35 @@ class Application : android.app.Application() {
         super.onTerminate()
     }
 
+    private fun storeCustomDNS(){        
+        try {
+            val customDnsString = runBlocking { UserKnobs.customDnsString.first() }
+            if(customDnsString.isNullOrBlank()){
+                setDefaultDns()
+                return
+            }
+            val customDns = InetAddress.getByName(customDnsString)            
+            UdpDnsResolver.setDnsServer(customDns)
+            Log.i(TAG, "Custom DNS applied: $customDnsString")
+        } catch (e: Exception) {  
+            setDefaultDns()          
+            Log.e(TAG, "get cusntom DNS err,use default", e)
+        }
+    }
+
+    private fun setDefaultDns(){
+        try {
+            UdpDnsResolver.setDnsServer(InetAddress.getByName(DEFAULT_DNS))
+            runBlocking { UserKnobs.setCustomDnsString(DEFAULT_DNS) }
+        } catch (e: Exception) {
+            Log.e(TAG, "set default DNS err", e)
+        }
+    }
+
     companion object {
         val USER_AGENT = String.format(Locale.ENGLISH, "WireGuard/%s (Android %d; %s; %s; %s %s; %s)", BuildConfig.VERSION_NAME, Build.VERSION.SDK_INT, if (Build.SUPPORTED_ABIS.isNotEmpty()) Build.SUPPORTED_ABIS[0] else "unknown ABI", Build.BOARD, Build.MANUFACTURER, Build.MODEL, Build.FINGERPRINT)
         private const val TAG = "WireGuard/Application"
+        const val DEFAULT_DNS = "223.5.5.5"
         private lateinit var weakSelf: WeakReference<Application>
 
         fun get(): Application {

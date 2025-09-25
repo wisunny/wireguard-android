@@ -4,20 +4,34 @@ package com.wireguard.util;
 import java.net.*;
 import java.nio.ByteBuffer;
 import java.util.*;
+import android.util.Log;
 
 public class UdpDnsResolver {
-    public static List<InetAddress> resolve(String domain, String dns, int timeoutSec, int retries, int port) throws Exception {
+    private final static String TAG = "WireGuard/Util/UdpDnsResolver";
+    private static volatile InetAddress dnsServer;
+
+    private UdpDnsResolver() {} // 防止实例化
+
+    public static void setDnsServer(InetAddress server) {
+        dnsServer = server;
+    }
+
+    public static InetAddress getDnsServer() {
+        return dnsServer;
+    }    
+
+
+    public static List<InetAddress> resolve(String domain, int timeoutSec, int retries, int port) throws Exception {
         List<InetAddress> results = new ArrayList<>();
         int[] qtypes = {1, 28}; // A + AAAA
-
+        InetAddress dns = getDnsServer() != null ? getDnsServer() : InetAddress.getByName("223.5.5.5");
+        Log.i(TAG, "custom dns server:" + dns.getHostAddress() + " port:" + port);
         for (int qtype : qtypes) {
             byte[] query = buildDnsQuery(domain, qtype);
-
             for (int i = 0; i < retries; i++) {
                 try (DatagramSocket socket = new DatagramSocket()) {
                     socket.setSoTimeout(timeoutSec * 1000);
-                    InetAddress dnsServer = InetAddress.getByName(dns);
-                    DatagramPacket request = new DatagramPacket(query, query.length, dnsServer, port);
+                    DatagramPacket request = new DatagramPacket(query, query.length, dns, port);
                     socket.send(request);
 
                     byte[] buf = new byte[512];

@@ -7,13 +7,16 @@ package com.wireguard.android.activity
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.commit
 import androidx.lifecycle.lifecycleScope
+import androidx.preference.EditTextPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import com.wireguard.android.Application
@@ -22,20 +25,20 @@ import com.wireguard.android.R
 import com.wireguard.android.backend.WgQuickBackend
 import com.wireguard.android.preference.PreferencesPreferenceDataStore
 import com.wireguard.android.util.AdminKnobs
+import com.wireguard.util.UdpDnsResolver
+import java.net.InetAddress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * Interface for changing application-global persistent settings.
- */
+import com.wireguard.android.Application.Companion.DEFAULT_DNS
+
+/** Interface for changing application-global persistent settings. */
 class SettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (supportFragmentManager.findFragmentById(android.R.id.content) == null) {
-            supportFragmentManager.commit {
-                add(android.R.id.content, SettingsFragment())
-            }
+            supportFragmentManager.commit { add(android.R.id.content, SettingsFragment()) }
         }
     }
 
@@ -49,18 +52,27 @@ class SettingsActivity : AppCompatActivity() {
 
     class SettingsFragment : PreferenceFragmentCompat() {
 
-        // Since this is pretty much abandoned by androidx, it never got updated for proper EdgeToEdge support,
+        // Since this is pretty much abandoned by androidx, it never got updated for proper
+        // EdgeToEdge support,
         // which is enabled everywhere for API 35. So handle the insets manually here.
-        override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+        override fun onCreateView(
+                inflater: LayoutInflater,
+                container: ViewGroup?,
+                savedInstanceState: Bundle?
+        ): View {
             val view = super.onCreateView(inflater, container, savedInstanceState)
             view.fitsSystemWindows = true
             return view
         }
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, key: String?) {
-            preferenceManager.preferenceDataStore = PreferencesPreferenceDataStore(lifecycleScope, Application.getPreferencesDataStore())
+            preferenceManager.preferenceDataStore =
+                    PreferencesPreferenceDataStore(
+                            lifecycleScope,
+                            Application.getPreferencesDataStore()
+                    )
             addPreferencesFromResource(R.xml.preferences)
-            preferenceScreen.initialExpandedChildrenCount = 5
+            preferenceScreen.initialExpandedChildrenCount = 6
 
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || QuickTileService.isAdded) {
                 val quickTile = preferenceManager.findPreference<Preference>("quick_tile")
@@ -73,18 +85,21 @@ class SettingsActivity : AppCompatActivity() {
                 --preferenceScreen.initialExpandedChildrenCount
             }
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-                val remoteApps = preferenceManager.findPreference<Preference>("allow_remote_control_intents")
+                val remoteApps =
+                        preferenceManager.findPreference<Preference>("allow_remote_control_intents")
                 remoteApps?.parent?.removePreference(remoteApps)
             }
             if (AdminKnobs.disableConfigExport) {
                 val zipExporter = preferenceManager.findPreference<Preference>("zip_exporter")
                 zipExporter?.parent?.removePreference(zipExporter)
             }
-            val wgQuickOnlyPrefs = arrayOf(
-                preferenceManager.findPreference("tools_installer"),
-                preferenceManager.findPreference("restore_on_boot"),
-                preferenceManager.findPreference<Preference>("multiple_tunnels")
-            ).filterNotNull()
+            val wgQuickOnlyPrefs =
+                    arrayOf(
+                                    preferenceManager.findPreference("tools_installer"),
+                                    preferenceManager.findPreference("restore_on_boot"),
+                                    preferenceManager.findPreference<Preference>("multiple_tunnels")
+                            )
+                            .filterNotNull()
             wgQuickOnlyPrefs.forEach { it.isVisible = false }
             lifecycleScope.launch {
                 if (Application.getBackend() is WgQuickBackend) {
@@ -94,11 +109,13 @@ class SettingsActivity : AppCompatActivity() {
                     wgQuickOnlyPrefs.forEach { it.parent?.removePreference(it) }
                 }
             }
-            preferenceManager.findPreference<Preference>("log_viewer")?.setOnPreferenceClickListener {
-                startActivity(Intent(requireContext(), LogViewerActivity::class.java))
-                true
-            }
-            val kernelModuleEnabler = preferenceManager.findPreference<Preference>("kernel_module_enabler")
+            preferenceManager.findPreference<Preference>("log_viewer")
+                    ?.setOnPreferenceClickListener {
+                        startActivity(Intent(requireContext(), LogViewerActivity::class.java))
+                        true
+                    }
+            val kernelModuleEnabler =
+                    preferenceManager.findPreference<Preference>("kernel_module_enabler")
             if (WgQuickBackend.hasKernelSupport()) {
                 lifecycleScope.launch {
                     if (Application.getBackend() !is WgQuickBackend) {
@@ -111,6 +128,35 @@ class SettingsActivity : AppCompatActivity() {
                 }
             } else {
                 kernelModuleEnabler?.parent?.removePreference(kernelModuleEnabler)
+            }
+
+            val customDnsPref = findPreference<EditTextPreference>("custom_dns")
+            customDnsPref?.summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance()
+            customDnsPref?.setOnPreferenceChangeListener { _, newValue ->
+                val dns = newValue as String
+                if (dns.isBlank()) {
+                    //UdpDnsResolver.setDnsServer(InetAddress.getByName(DEFAULT_DNS))
+                    return@setOnPreferenceChangeListener false // 不保存
+                }
+                var addr: InetAddress? = null
+                val isValid =
+                        try {
+                            addr = InetAddress.getByName(dns)
+                            true
+                        } catch (e: Exception) {
+                            false
+                        }
+                if (!isValid) {
+                    Toast.makeText(context, R.string.custom_dns_invalid, Toast.LENGTH_SHORT).show()
+                    return@setOnPreferenceChangeListener false // 不保存
+                }
+
+                UdpDnsResolver.setDnsServer(addr!!)
+
+                Log.i("Settings", "用户设置的自定义 DNS: $dns")
+                Toast.makeText(context, "DNS 已更新为 $dns", Toast.LENGTH_SHORT).show()
+
+                true // 保存用户输入到 SharedPreferences
             }
         }
     }

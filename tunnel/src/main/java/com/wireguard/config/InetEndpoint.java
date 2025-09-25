@@ -143,7 +143,7 @@ public final class InetEndpoint {
         synchronized (lock) {
             if (Duration.between(lastResolution, Instant.now()).toSeconds() > 10) {
                 try {
-                    final List<InetAddress> candidates = UdpDnsResolver.resolve(host, "223.5.5.5", 2, 3, 53);
+                    final List<InetAddress> candidates = UdpDnsResolver.resolve(host, 2, 3, 53);
                     InetAddress address = candidates.get(0);
                     for (final InetAddress candidate : candidates) {
                         Log.i(TAG, "address:" + address.getHostAddress());

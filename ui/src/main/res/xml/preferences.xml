@@ -15,12 +15,18 @@
         android:summaryOn="@string/restore_on_boot_summary_on"
         android:title="@string/restore_on_boot_title" />
     <com.wireguard.android.preference.ZipExporterPreference android:key="zip_exporter" />
-    <com.wireguard.android.preference.QuickTilePreference android:key="quick_tile" />
     <Preference
         android:key="log_viewer"
         android:singleLineTitle="false"
         android:summary="@string/log_viewer_pref_summary"
         android:title="@string/log_viewer_pref_title" />
+    <EditTextPreference
+    android:key="custom_dns"
+    android:title="@string/custom_dns_title"
+    android:summary="@string/custom_dns_summary"
+    android:inputType="text" />
+    
+    <com.wireguard.android.preference.QuickTilePreference android:key="quick_tile" />
     <CheckBoxPreference
         android:defaultValue="false"
         android:key="dark_theme"
