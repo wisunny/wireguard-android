@@ -12,11 +12,13 @@ import android.view.LayoutInflater
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Toast
+import android.widget.EditText
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.commit
 import androidx.lifecycle.lifecycleScope
 import androidx.preference.EditTextPreference
+import androidx.preference.EditTextPreferenceDialogFragmentCompat
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import com.wireguard.android.Application
@@ -30,8 +32,6 @@ import java.net.InetAddress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-import com.wireguard.android.Application.Companion.DEFAULT_DNS
 
 /** Interface for changing application-global persistent settings. */
 class SettingsActivity : AppCompatActivity() {
@@ -64,6 +64,17 @@ class SettingsActivity : AppCompatActivity() {
             view.fitsSystemWindows = true
             return view
         }
+
+        override fun onDisplayPreferenceDialog(preference: Preference) {
+            if (preference.key == "custom_dns") {
+                val f = CustomDnsPreferenceDialogFragment.newInstance(preference.key)
+                f.setTargetFragment(this, 0)
+                f.show(parentFragmentManager, "CustomDnsDialog")
+            } else {
+                super.onDisplayPreferenceDialog(preference)
+            }
+        }
+
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, key: String?) {
             preferenceManager.preferenceDataStore =
@@ -132,32 +143,50 @@ class SettingsActivity : AppCompatActivity() {
 
             val customDnsPref = findPreference<EditTextPreference>("custom_dns")
             customDnsPref?.summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance()
-            customDnsPref?.setOnPreferenceChangeListener { _, newValue ->
-                val dns = newValue as String
-                if (dns.isBlank()) {
-                    //UdpDnsResolver.setDnsServer(InetAddress.getByName(DEFAULT_DNS))
-                    return@setOnPreferenceChangeListener false // 不保存
+
+        }
+    }
+
+    class CustomDnsPreferenceDialogFragment : EditTextPreferenceDialogFragmentCompat() {
+        override fun onStart() {
+            super.onStart()
+            val dialog = dialog as? AlertDialog ?: return
+            val positiveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            positiveButton.setOnClickListener {
+                val editText = dialog.findViewById<EditText>(android.R.id.edit)
+                val text = editText?.text?.toString()?.trim() ?: ""
+                val dns = validDns(text)
+                if (dns == null) {
+                    editText?.error = getString(R.string.custom_dns_invalid)
+                } else {
+                    UdpDnsResolver.setDnsServer(dns)
+                    Log.i("WireGuardSettings", "用户设置的自定义 DNS: ${dns.hostAddress}")
+                    (preference as EditTextPreference).text = text
+                    dialog.dismiss()
                 }
-                var addr: InetAddress? = null
-                val isValid =
-                        try {
-                            addr = InetAddress.getByName(dns)
-                            true
-                        } catch (e: Exception) {
-                            false
-                        }
-                if (!isValid) {
-                    Toast.makeText(context, R.string.custom_dns_invalid, Toast.LENGTH_SHORT).show()
-                    return@setOnPreferenceChangeListener false // 不保存
-                }
+            }
+        }
 
-                UdpDnsResolver.setDnsServer(addr!!)
+        private fun validDns(dns: String): InetAddress? {
+            if (dns.isBlank()){
+                return null
+            }
+            return try {
+                InetAddress.getByName(dns)
+            } catch (e: Exception) {
+                null
+            }
+        }
 
-                Log.i("Settings", "用户设置的自定义 DNS: $dns")
-                Toast.makeText(context, "DNS 已更新为 $dns", Toast.LENGTH_SHORT).show()
-
-                true // 保存用户输入到 SharedPreferences
+        companion object {
+            fun newInstance(key: String): CustomDnsPreferenceDialogFragment {
+                val fragment = CustomDnsPreferenceDialogFragment()
+                val bundle = Bundle(1)
+                bundle.putString(ARG_KEY, key)
+                fragment.arguments = bundle
+                return fragment
             }
         }
     }
+
 }
